@@ -37,6 +37,14 @@ txLock script datum =
           (Pl.lovelaceValueOf (Split.amount datum))
       ]
 
+{-
+lockFunds :: SplitData -> Contract () SplitSchema T.Text ()
+lockFunds s@SplitData{amount} = do
+    logInfo $ "Locking " <> Haskell.show amount
+    let tx = Constraints.mustPayToTheScriptWithDatumInTx s (Ada.toValue amount)
+    void $ submitTxConstraints splitValidator tx
+-}
+
 -- | Label for 'txLock' skeleton, making it immediately recognizable
 -- when printing traces.
 newtype TxLock = TxLock SplitDatum deriving (Show, Eq)
