@@ -32,6 +32,8 @@ import qualified Ledger.Typed.Scripts as Pl
 import Plutus.Contract qualified as PC
 import Ledger.Value (Value, geq) -- , lt)
 import Prelude
+import qualified Ledger as L
+
 
 
 
@@ -62,10 +64,11 @@ payEp ::
     , AsEscrowError e
     )
     => EscrowParams Datum
-    -> PC.Promise w s e () -- Pl.TxId
+    -> PC.Promise w s e Pl.TxId
 payEp escrow = PC.promiseMap
     (PC.mapError (review _EContractError))
     (PC.endpoint @"pay-escrow" $ pay (typedValidator escrow) escrow)
+
 
 
 {-
@@ -91,6 +94,25 @@ pay inst escrow vl = do
         >>= return . getCardanoTxId
 -}
 
+{-
+https://playground.plutus.iohkdev.io/doc/haddock/plutus-contract/html/Plutus-Contract.html
+
+mkTxConstraints :: forall a w s e. 
+    (ToData (RedeemerType a), FromData (DatumType a), 
+    ToData (DatumType a), AsContractError e) 
+        => 
+            ScriptLookups a 
+            -> TxConstraints (RedeemerType a) (DatumType a) 
+            -> Contract w s e UnbalancedTxSource#
+
+Build a transaction that satisfies the constraints
+
+
+https://github.com/tweag/plutus-libs/tree/main/cooked-validators#a-quick-example
+https://plutus-apps.readthedocs.io/en/latest/plutus/tutorials/basic-apps.html#defining-the-validator-script
+https://github.com/tweag/plutus-libs/blob/main/cooked-validators/src/Cooked/MockChain/Monad/Staged.hs
+-}
+
 
 pay ::
     MonadBlockChain m
@@ -100,15 +122,15 @@ pay ::
     -- ^ The escrow contract
     -> Value
     -- ^ How much money to pay in
-    -> m ()
+    -> m L.TxId
 pay inst escrow vl = do
     pk <- ownPaymentPubKeyHash -- ownFirstPaymentPubKeyHash
-    void $ validateTxConstrLbl
+    validateTxConstrLbl
         TxPay
         [paysPK
             pk
             vl
-        ]
+        ] >>= return . L.getCardanoTxId
 
 data TxPay = TxPay deriving (Show, Eq)
 
