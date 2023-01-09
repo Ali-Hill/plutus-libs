@@ -82,6 +82,9 @@ class (MonadFail m) => MonadBlockChain m where
   --  controlled with 'signingWith': the head of the non-empty list will be considered as the "ownPubkey".
   ownPaymentPubKeyHash :: m Pl.PubKeyHash
 
+  ownFirstPaymentPubKeyHash :: m Pl.PaymentPubKeyHash
+
+
   -- | Returns the current slot number
   currentSlot :: m Pl.Slot
 
@@ -326,6 +329,7 @@ instance (MonadTrans t, MonadBlockChain m, MonadFail (t m)) => MonadBlockChain (
   utxosSuchThisAndThat addrPred datumPred = lift $ utxosSuchThisAndThat addrPred datumPred
   datumFromTxOut = lift . datumFromTxOut
   ownPaymentPubKeyHash = lift ownPaymentPubKeyHash
+  ownFirstPaymentPubKeyHash = lift ownFirstPaymentPubKeyHash
   txOutByRef = lift . txOutByRef
   currentSlot = lift currentSlot
   currentTime = lift currentTime

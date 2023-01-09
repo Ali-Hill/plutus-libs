@@ -124,13 +124,25 @@ pay ::
     -- ^ How much money to pay in
     -> m L.TxId
 pay inst escrow vl = do
-    pk <- ownPaymentPubKeyHash -- ownFirstPaymentPubKeyHash
+    pk <- ownFirstPaymentPubKeyHash -- ownPaymentPubKeyHash 
     validateTxConstrLbl
         TxPay
-        [paysPK
+        [paysScript
+            inst
             pk
             vl
         ] >>= return . L.getCardanoTxId
+
+{-
+do
+    pk <- ownFirstPaymentPubKeyHash
+    let tx = Constraints.mustPayToTheScript pk vl
+          <> Constraints.mustValidateIn (Ledger.interval 1 (escrowDeadline escrow))
+    mkTxConstraints (Constraints.typedValidatorLookups inst) tx
+        >>= adjustUnbalancedTx
+        >>= submitUnbalancedTx
+        >>= return . getCardanoTxId
+-}
 
 data TxPay = TxPay deriving (Show, Eq)
 
