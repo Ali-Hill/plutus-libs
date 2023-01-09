@@ -34,7 +34,7 @@ import Ledger.Value (Value, geq) -- , lt)
 import Prelude
 import qualified Ledger as L
 
-
+import Data.Default
 
 
 
@@ -70,7 +70,6 @@ payEp escrow = PC.promiseMap
     (PC.endpoint @"pay-escrow" $ pay (typedValidator escrow) escrow)
 
 
-
 {-
 -- | Pay some money into the escrow contract.
 pay ::
@@ -86,6 +85,37 @@ pay ::
     -> Contract w s e TxId
 pay inst escrow vl = do
     pk <- ownFirstPaymentPubKeyHash
+    let tx = Constraints.mustPayToTheScript pk vl
+          <> Constraints.mustValidateIn (Ledger.interval 1 (escrowDeadline escrow))
+    mkTxConstraints (Constraints.typedValidatorLookups inst) tx
+        >>= adjustUnbalancedTx
+        >>= submitUnbalancedTx
+        >>= return . getCardanoTxId
+-}
+
+pay ::
+    MonadBlockChain m
+    => Pl.TypedValidator Escrow
+    -- ^ The instance
+    -> EscrowParams Datum
+    -- ^ The escrow contract
+    -> Value
+    -- ^ How much money to pay in
+    -> m L.TxId
+pay inst escrow vl = do
+    let deadline = L.interval 1 (escrowDeadline escrow)
+    pk <- ownFirstPaymentPubKeyHash 
+    (validateTxSkel $
+          txSkelOpts (def {adjustUnbalTx = True}) $
+        [ValidateIn deadline]
+            :=>:
+                [paysScript
+                    inst
+                    pk
+                    vl
+                ]) >>= return . L.getCardanoTxId
+
+{-
     let tx = Constraints.mustPayToTheScript pk vl
           <> Constraints.mustValidateIn (Ledger.interval 1 (escrowDeadline escrow))
     mkTxConstraints (Constraints.typedValidatorLookups inst) tx
@@ -111,50 +141,6 @@ Build a transaction that satisfies the constraints
 https://github.com/tweag/plutus-libs/tree/main/cooked-validators#a-quick-example
 https://plutus-apps.readthedocs.io/en/latest/plutus/tutorials/basic-apps.html#defining-the-validator-script
 https://github.com/tweag/plutus-libs/blob/main/cooked-validators/src/Cooked/MockChain/Monad/Staged.hs
--}
-
-
-pay ::
-    MonadBlockChain m
-    => Pl.TypedValidator Escrow
-    -- ^ The instance
-    -> EscrowParams Datum
-    -- ^ The escrow contract
-    -> Value
-    -- ^ How much money to pay in
-    -> m L.TxId
-pay inst escrow vl = do
-    pk <- ownFirstPaymentPubKeyHash -- ownPaymentPubKeyHash 
-    validateTxConstrLbl
-        TxPay
-        [paysScript
-            inst
-            pk
-            vl
-        ] >>= return . L.getCardanoTxId
-
-{-
-do
-    pk <- ownFirstPaymentPubKeyHash
-    let tx = Constraints.mustPayToTheScript pk vl
-          <> Constraints.mustValidateIn (Ledger.interval 1 (escrowDeadline escrow))
-    mkTxConstraints (Constraints.typedValidatorLookups inst) tx
-        >>= adjustUnbalancedTx
-        >>= submitUnbalancedTx
-        >>= return . getCardanoTxId
--}
-
-data TxPay = TxPay deriving (Show, Eq)
-
-
-
-{-
-    let tx = Constraints.mustPayToTheScript pk vl
-          <> Constraints.mustValidateIn (Ledger.interval 1 (escrowDeadline escrow))
-    mkTxConstraints (Constraints.typedValidatorLookups inst) tx
-        >>= adjustUnbalancedTx
-        >>= submitUnbalancedTx
-        >>= return . getCardanoTxId
 -}
 
 
