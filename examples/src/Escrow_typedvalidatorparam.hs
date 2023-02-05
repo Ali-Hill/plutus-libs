@@ -78,7 +78,7 @@ import Ledger.Typed.Scripts qualified as Scripts
 import Ledger.Value (Value, geq) -- , lt)
 import Plutus.Contract
 -- import Plutus.Contract.Typed.Tx qualified as Typed
-import Plutus.Script.Utils.V1.Scripts (datumHash)
+import Plutus.Script.Utils.V1.Scripts qualified as GScripts
 import Plutus.V1.Ledger.Scripts (Datum (Datum), DatumHash, ValidatorHash)
 
 -- import Prelude (Semigroup (..), foldMap)
@@ -89,8 +89,7 @@ type EscrowSchema =
         .\/ Endpoint "redeem-escrow" ()
         .\/ Endpoint "refund-escrow" ()
 
--- added reason for redeem failure when using cooked
-data RedeemFailReason = DeadlinePassed | NotEnoughFundsAtAddress | UsingScriptsWithCooked
+data RedeemFailReason = DeadlinePassed | NotEnoughFundsAtAddress
     deriving stock (Haskell.Eq, Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
@@ -132,10 +131,10 @@ instance AsContractError EscrowError where
 --   `d = DatumHash` (when checking the hashes in on-chain code)
 data EscrowTarget d =
     PaymentPubKeyTarget PaymentPubKeyHash Value
-    | ScriptTarget ValidatorHash d Value
+    | ScriptTarget (Scripts.TypedValidator Scripts.Any) d Value
     deriving (Haskell.Functor)
 
-PlutusTx.makeLift ''EscrowTarget 
+PlutusTx.makeLift ''EscrowTarget
 
 -- | An 'EscrowTarget' that pays the value to a public key address.
 payToPaymentPubKeyTarget :: PaymentPubKeyHash -> Value -> EscrowTarget d
@@ -143,7 +142,7 @@ payToPaymentPubKeyTarget = PaymentPubKeyTarget
 
 -- | An 'EscrowTarget' that pays the value to a script address, with the
 --   given data script.
-payToScriptTarget :: ValidatorHash -> Datum -> Value -> EscrowTarget Datum
+payToScriptTarget :: (Scripts.TypedValidator Scripts.Any) -> Datum -> Value -> EscrowTarget Datum
 payToScriptTarget = ScriptTarget
 
 -- | Definition of an escrow contract, consisting of a deadline and a list of targets
@@ -155,7 +154,7 @@ data EscrowParams d =
         -- ^ Where the money should go. For each target, the contract checks that
         --   the output 'mkTxOutput' of the target is present in the spending
         --   transaction.
-        } deriving (Haskell.Functor)
+        } deriving (Haskell.Functor, Generic)
 
 PlutusTx.makeLift ''EscrowParams
 
@@ -176,17 +175,9 @@ mkTx = \case
     PaymentPubKeyTarget pkh vl ->
         Constraints.mustPayToPubKey pkh vl
     ScriptTarget vs ds vl ->
-        Constraints.mustPayToOtherScript vs ds vl
+        Constraints.mustPayToOtherScript (Scripts.validatorHash vs) ds vl
 
--- The below instance haskell.show and instance declarations are needed for cooked
-data Action = Redeem | Refund 
-    deriving (Haskell.Show)
-
-instance Eq Action where
-    {-# INLINEABLE (==) #-}
-    Redeem == Redeem = True
-    Refund == Refund = True 
-    _ == _ = False
+data Action = Redeem | Refund
 
 data Escrow
 instance Scripts.ValidatorTypes Escrow where
@@ -210,8 +201,8 @@ meetsTarget :: TxInfo -> EscrowTarget DatumHash -> Bool
 meetsTarget ptx = \case
     PaymentPubKeyTarget pkh vl ->
         valuePaidTo ptx (unPaymentPubKeyHash pkh) `geq` vl
-    ScriptTarget validatorHash dataValue vl ->
-        case scriptOutputsAt validatorHash ptx of
+    ScriptTarget tv dataValue vl ->
+        case scriptOutputsAt (Scripts.validatorHash tv) ptx of
             [(dataValue', vl')] ->
                 traceIfFalse "dataValue" (dataValue' == dataValue)
                 && traceIfFalse "value" (vl' `geq` vl)
@@ -229,7 +220,7 @@ validate EscrowParams{escrowDeadline, escrowTargets} contributor action ScriptCo
             && traceIfFalse "txSignedBy" (scriptContextTxInfo `txSignedBy` unPaymentPubKeyHash contributor)
 
 typedValidator :: EscrowParams Datum -> Scripts.TypedValidator Escrow
-typedValidator escrow = go (Haskell.fmap datumHash escrow) where
+typedValidator escrow = go (Haskell.fmap GScripts.datumHash escrow) where
     go = Scripts.mkTypedValidatorParam @Escrow
         $$(PlutusTx.compile [|| validate ||])
         $$(PlutusTx.compile [|| wrap ||])

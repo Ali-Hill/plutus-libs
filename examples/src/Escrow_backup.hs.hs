@@ -89,8 +89,7 @@ type EscrowSchema =
         .\/ Endpoint "redeem-escrow" ()
         .\/ Endpoint "refund-escrow" ()
 
--- added reason for redeem failure when using cooked
-data RedeemFailReason = DeadlinePassed | NotEnoughFundsAtAddress | UsingScriptsWithCooked
+data RedeemFailReason = DeadlinePassed | NotEnoughFundsAtAddress
     deriving stock (Haskell.Eq, Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
@@ -135,7 +134,7 @@ data EscrowTarget d =
     | ScriptTarget ValidatorHash d Value
     deriving (Haskell.Functor)
 
-PlutusTx.makeLift ''EscrowTarget 
+PlutusTx.makeLift ''EscrowTarget
 
 -- | An 'EscrowTarget' that pays the value to a public key address.
 payToPaymentPubKeyTarget :: PaymentPubKeyHash -> Value -> EscrowTarget d
@@ -178,15 +177,7 @@ mkTx = \case
     ScriptTarget vs ds vl ->
         Constraints.mustPayToOtherScript vs ds vl
 
--- The below instance haskell.show and instance declarations are needed for cooked
-data Action = Redeem | Refund 
-    deriving (Haskell.Show)
-
-instance Eq Action where
-    {-# INLINEABLE (==) #-}
-    Redeem == Redeem = True
-    Refund == Refund = True 
-    _ == _ = False
+data Action = Redeem | Refund
 
 data Escrow
 instance Scripts.ValidatorTypes Escrow where

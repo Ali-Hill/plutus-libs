@@ -254,35 +254,6 @@ targetValue = \case
           ( Pl.MustPayToOtherScript
               (Pl.validatorHash $ Pl.validatorScript v) -}
 
-
-{-
-PC.mapError (review _EscrowError) $ do
-    let addr = Scripts.validatorAddress inst
-    current <- currentTime
-    unspentOutputs <- PC.utxosAt addr
-    let
-        valRange = Interval.to (pred $ escrowDeadline escrow)
-        tx = Typed.collectFromScript unspentOutputs Redeem
-                <> foldMap mkTx (escrowTargets escrow)
-                <> Constraints.mustValidateIn valRange
-    if current >= escrowDeadline escrow
-    then throwing _RedeemFailed DeadlinePassed
-    else if foldMap (view Tx.ciTxOutValue) unspentOutputs `lt` targetTotal escrow
-         then throwing _RedeemFailed NotEnoughFundsAtAddress
-         else do
-           utx <- PC.mkTxConstraints ( Constraints.typedValidatorLookups inst
-                                 <> Constraints.unspentOutputs unspentOutputs
-                                  ) tx
-           adjusted <- PC.adjustUnbalancedTx utx
-           RedeemSuccess . Tx.getCardanoTxId <$> PC.submitUnbalancedTx adjusted
--}
-
-
-{-
-
--}
-
-
 redeem2 ::
     MonadBlockChain m 
     => Pl.TypedValidator Escrow
@@ -299,38 +270,8 @@ redeem2 inst escrow = do
                 map (SpendsScript inst Redeem . fst) unspentOutputs
                     :=>: map (\case 
                                 PaymentPubKeyTarget pk vl -> paysPK (L.unPaymentPubKeyHash pk) vl
-                                ScriptTarget vh d vl -> error "can't use script with cooked")  
+                                ScriptTarget vh d vl -> paysScript vh d vl) 
                                 (escrowTargets escrow) 
-    return tx
-
-
-
-redeem3 ::
-    MonadBlockChain m 
-    => Pl.TypedValidator Escrow
-    -> EscrowParams Datum 
-    -> m L.CardanoTx
-redeem3 inst escrow = do 
-    let 
-      addr = Scripts.validatorAddress inst
-      valRange = Interval.to (pred $ escrowDeadline escrow)
-    current <- currentTime
-    unspentOutputs <- scriptUtxosSuchThat inst (\_ x -> True)
-    if current >= escrowDeadline escrow
-    then error "Deadline Passed"
-    else do
-      tx <- 
-        validateTxSkel $ 
-            txSkelOpts (def {adjustUnbalTx = True}) $ 
-                map (SpendsScript inst Redeem . fst) unspentOutputs
-                    :=>: map (\case 
-                                PaymentPubKeyTarget pk vl -> paysPK (L.unPaymentPubKeyHash pk) vl
-                                ScriptTarget vh d vl -> error "can't use script with cooked")  
-                                (escrowTargets escrow)
-      return tx 
-
-
-
 
                     -- [paysPK addr $ map (sOutValue . fst) (escrowTargets escrow)]
 
@@ -346,6 +287,7 @@ redeem3 inst escrow = do
         validateTxSkel $ 
             txSkelOpts (def {adjustUnbalTx = True}) $ 
                 foldMap paysPK (escrowTargets escrow) -}
+    return tx
 
 
 
