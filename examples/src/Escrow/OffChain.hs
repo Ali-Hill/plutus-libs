@@ -119,18 +119,18 @@ pay inst escrow vl = do
 newtype RedeemSuccess = RedeemSuccess L.TxId
     deriving (Eq, Show)
 
-{-
+
 redeemEp ::
     forall w s e.
-    ( HasEndpoint "redeem-escrow" () s
+    ( PC.HasEndpoint "redeem-escrow" () s
     , AsEscrowError e
     )
     => EscrowParams Datum
-    -> Promise w s e RedeemSuccess
-redeemEp escrow = promiseMap
-    (mapError (review _EscrowError))
-    (endpoint @"redeem-escrow" $ \() -> redeem (typedValidator escrow) escrow)
--}
+    -> PC.Promise w s e RedeemSuccess
+redeemEp escrow = PC.promiseMap
+    (PC.mapError (review _EscrowError))
+    (PC.endpoint @"redeem-escrow" $ \() -> redeem (typedValidator escrow) escrow)
+
 
 
 {-
@@ -185,42 +185,7 @@ spOutsFromCardanoTx cardanoTx = forM (Pl.getCardanoTxOutRefs cardanoTx) $
       Just chainIndexTxOut -> spOutResolveDatum (txOutRef, chainIndexTxOut)
       Nothing -> fail "could not extract ChainIndexTxOut"
 -}
-      
-{-
-redeem ::
-    MonadBlockChain m 
-    => Pl.TypedValidator Escrow
-    -> EscrowParams Datum 
-  -> m L.CardanoTx
--}
-
-redeem ::
-    forall w s e.
-    ( AsEscrowError e
-    )
-    => Pl.TypedValidator Escrow
-    -> EscrowParams Datum
-    -> PC.Contract w s e RedeemSuccess
-redeem inst escrow = PC.mapError (review _EscrowError) $ do
-    let addr = Scripts.validatorAddress inst
-    current <- currentTime
-    unspentOutputs <- PC.utxosAt addr
-    let
-        valRange = Interval.to (pred $ escrowDeadline escrow)
-        tx = Typed.collectFromScript unspentOutputs Redeem
-                <> foldMap mkTx (escrowTargets escrow)
-                <> Constraints.mustValidateIn valRange
-    if current >= escrowDeadline escrow
-    then throwing _RedeemFailed DeadlinePassed
-    else if foldMap (view Tx.ciTxOutValue) unspentOutputs `lt` targetTotal escrow
-         then throwing _RedeemFailed NotEnoughFundsAtAddress
-         else do
-           utx <- PC.mkTxConstraints ( Constraints.typedValidatorLookups inst
-                                 <> Constraints.unspentOutputs unspentOutputs
-                                  ) tx
-           adjusted <- PC.adjustUnbalancedTx utx
-           RedeemSuccess . Tx.getCardanoTxId <$> PC.submitUnbalancedTx adjusted
-
+    
 
 {-
 txRefund :: MonadBlockChain m => m ()
@@ -236,98 +201,39 @@ txRefund = do
 -}
 
 
-
-
-{-
-targetValue :: EscrowTarget d -> Value
-targetValue = \case
-    PaymentPubKeyTarget _ vl -> vl
-    ScriptTarget _ _ vl      -> vl
--}
-
-
-
-{-
-      lkups = Pl.otherScript (Pl.validatorScript v)
-      constr =
-        Pl.singleton
-          ( Pl.MustPayToOtherScript
-              (Pl.validatorHash $ Pl.validatorScript v) -}
-
-
-{-
-PC.mapError (review _EscrowError) $ do
-    let addr = Scripts.validatorAddress inst
-    current <- currentTime
-    unspentOutputs <- PC.utxosAt addr
-    let
-        valRange = Interval.to (pred $ escrowDeadline escrow)
-        tx = Typed.collectFromScript unspentOutputs Redeem
-                <> foldMap mkTx (escrowTargets escrow)
-                <> Constraints.mustValidateIn valRange
-    if current >= escrowDeadline escrow
-    then throwing _RedeemFailed DeadlinePassed
-    else if foldMap (view Tx.ciTxOutValue) unspentOutputs `lt` targetTotal escrow
-         then throwing _RedeemFailed NotEnoughFundsAtAddress
-         else do
-           utx <- PC.mkTxConstraints ( Constraints.typedValidatorLookups inst
-                                 <> Constraints.unspentOutputs unspentOutputs
-                                  ) tx
-           adjusted <- PC.adjustUnbalancedTx utx
-           RedeemSuccess . Tx.getCardanoTxId <$> PC.submitUnbalancedTx adjusted
--}
-
-
-{-
-
--}
-
-
-redeem2 ::
+redeem ::
     MonadBlockChain m 
     => Pl.TypedValidator Escrow
     -> EscrowParams Datum 
-    -> m L.CardanoTx
-redeem2 inst escrow = do 
-    let addr = Scripts.validatorAddress inst
-    --unspentOutputs <- utxosAt addr
+    -> m RedeemSuccess
+redeem inst escrow = do
     unspentOutputs <- scriptUtxosSuchThat inst (\_ x -> True)
-
-    tx <- 
-        validateTxSkel $ 
-            txSkelOpts (def {adjustUnbalTx = True}) $ 
-                map (SpendsScript inst Redeem . fst) unspentOutputs
-                    :=>: map (\case 
-                                PaymentPubKeyTarget pk vl -> paysPK (L.unPaymentPubKeyHash pk) vl
-                                ScriptTarget vh d vl -> error "can't use script with cooked")  
-                                (escrowTargets escrow) 
-    return tx
-
-
-
-redeem3 ::
-    MonadBlockChain m 
-    => Pl.TypedValidator Escrow
-    -> EscrowParams Datum 
-    -> m L.CardanoTx
-redeem3 inst escrow = do 
+    current <- currentTime
     let 
       addr = Scripts.validatorAddress inst
       valRange = Interval.to (pred $ escrowDeadline escrow)
-    current <- currentTime
-    unspentOutputs <- scriptUtxosSuchThat inst (\_ x -> True)
+      uouts = map snd (map fst unspentOutputs)
+      deadline = L.interval 1 (escrowDeadline escrow)
     if current >= escrowDeadline escrow
     then error "Deadline Passed"
-    else do
-      tx <- 
-        validateTxSkel $ 
-            txSkelOpts (def {adjustUnbalTx = True}) $ 
-                map (SpendsScript inst Redeem . fst) unspentOutputs
-                    :=>: map (\case 
-                                PaymentPubKeyTarget pk vl -> paysPK (L.unPaymentPubKeyHash pk) vl
-                                ScriptTarget vh d vl -> error "can't use script with cooked")  
-                                (escrowTargets escrow)
-      return tx 
+    else if foldMap (view Tx.ciTxOutValue) uouts `lt` targetTotal escrow
+      then error "Not enough funds at address"
+      else do
+        tx <- 
+          validateTxSkel $ 
+              txSkelOpts (def {adjustUnbalTx = True}) $ 
+                  (ValidateIn deadline
+                    : map (SpendsScript inst Redeem . fst) unspentOutputs)
+                      :=>: map (\case 
+                                  PaymentPubKeyTarget pk vl -> paysPK (L.unPaymentPubKeyHash pk) vl
+                                  ScriptTarget vh d vl -> error "can't use script with cooked")  
+                                  (escrowTargets escrow)
+        return (RedeemSuccess (L.getCardanoTxId tx))
+
+
+
+
+
 
 
 
