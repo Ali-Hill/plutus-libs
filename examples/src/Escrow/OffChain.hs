@@ -193,7 +193,6 @@ refund inst escrow = do
     unspentOutputs <- scriptUtxosSuchThat inst (\_ x -> True)
     current <- currentTime
     let 
-      flt _ ciTxOut = either id datumHash (Tx._ciTxOutDatum ciTxOut) == datumHash (Datum (PlutusTx.toBuiltinData pk))
       uouts = refundFilter pk (map fst unspentOutputs)
     tx <- validateTxSkel $ 
               txSkelOpts (def {adjustUnbalTx = True}) $ 
