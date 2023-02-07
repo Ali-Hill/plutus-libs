@@ -79,7 +79,7 @@ escrowParams startTime =
 
 usageExample :: Assertion
 usageExample = testSucceeds $ do
-				pay (typedValidator (escrowParams (TimeSlot.scSlotZeroTime def))) (escrowParams (TimeSlot.scSlotZeroTime def)) (Ada.adaValueOf 10)
+				pay (typedValidator (escrowParams (TimeSlot.scSlotZeroTime def))) (escrowParams (TimeSlot.scSlotZeroTime def)) (Ada.adaValueOf 30)
 
 tests :: TestTree
 tests = 

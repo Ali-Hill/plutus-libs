@@ -75,6 +75,7 @@ test-suite spec
   other-modules:
       AuctionSpec
       EscrowSpec
+      EscrowSpecOld
       PMultiSigStatefulSpec
       SplitSpec
       SplitUPLCSpec

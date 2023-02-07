@@ -99,14 +99,14 @@ pay ::
     -> m L.TxId
 pay inst escrow vl = do
     let deadline = L.interval 1 (escrowDeadline escrow)
-    pk <- ownFirstPaymentPubKeyHash 
+    pk <- ownPaymentPubKeyHash 
     (validateTxSkel $
           txSkelOpts (def {adjustUnbalTx = True}) $
         [ValidateIn deadline]
             :=>:
                 [paysScript
                     inst
-                    pk
+                    (L.PaymentPubKeyHash pk)
                     vl
                 ]) >>= return . L.getCardanoTxId
 
@@ -189,11 +189,11 @@ refund ::
     -> EscrowParams Datum 
     -> m RefundSuccess
 refund inst escrow = do
-    pk <- ownFirstPaymentPubKeyHash
+    pk <- ownPaymentPubKeyHash
     unspentOutputs <- scriptUtxosSuchThat inst (\_ x -> True)
     current <- currentTime
     let 
-      uouts = refundFilter pk (map fst unspentOutputs)
+      uouts = refundFilter (L.PaymentPubKeyHash pk) (map fst unspentOutputs)
     tx <- validateTxSkel $ 
               txSkelOpts (def {adjustUnbalTx = True}) $ 
                   (After (escrowDeadline escrow)
