@@ -20,6 +20,6 @@ main = do
         -- SplitSpec.tests,
         -- SplitUPLCSpec.tests,
         -- AuctionSpec.tests
-        -- EscrowSpec.tests
-        EscrowSpecOld.tests
+        EscrowSpec.tests
+        -- EscrowSpecOld.tests
       ]
