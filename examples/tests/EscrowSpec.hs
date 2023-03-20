@@ -41,8 +41,7 @@ import Test.Tasty.QuickCheck hiding ((.&&.))
 import Ledger.Time (POSIXTime)
 import Ledger.TimeSlot qualified as TimeSlot
 
-import Plutus.Contract.Test hiding 
-    (knownWallets, allowBigTransactions, InitialDistribution, Wallet)
+import Plutus.Contract.Test qualified as PTest
 
 
 import Escrow
@@ -75,8 +74,8 @@ escrowParams startTime =
   EscrowParams
     { escrowDeadline = startTime + 40000
     , escrowTargets  =
-        [ payToPaymentPubKeyTarget (mockWalletPaymentPubKeyHash w1) (Ada.adaValueOf 10)
-        , payToPaymentPubKeyTarget (mockWalletPaymentPubKeyHash w2) (Ada.adaValueOf 20)
+        [ payToPaymentPubKeyTarget (PTest.mockWalletPaymentPubKeyHash PTest.w1) (Ada.adaValueOf 10)
+        , payToPaymentPubKeyTarget (PTest.mockWalletPaymentPubKeyHash PTest.w2) (Ada.adaValueOf 20)
         ]
     }
 
@@ -89,14 +88,35 @@ usageExample = testSucceeds $ do
         (Ada.adaValueOf 30) `as` wallet 1
 
 
-redeemTest :: MonadMockChain m => m RedeemSuccess
-redeemTest = do 
+redeemTrace :: MonadMockChain m => m RedeemSuccess
+redeemTrace = do
     let
         val = (typedValidator (escrowParams (TimeSlot.scSlotZeroTime def)))
         params = (escrowParams (TimeSlot.scSlotZeroTime def)) 
     pay val params (Ada.adaValueOf 20) `as` wallet 1
     pay val params (Ada.adaValueOf 10) `as` wallet 2
     redeem val params `as` wallet 3
+
+redeem2Trace :: MonadMockChain m => m RedeemSuccess
+redeem2Trace = do
+    let
+        val = (typedValidator (escrowParams (TimeSlot.scSlotZeroTime def)))
+        params = (escrowParams (TimeSlot.scSlotZeroTime def))
+    pay val params (Ada.adaValueOf 20) `as` wallet 1
+    pay val params (Ada.adaValueOf 10) `as` wallet 2
+    pay val params (Ada.adaValueOf 10) `as` wallet 3
+    redeem val params `as` wallet 1
+
+refundTrace :: MonadMockChain m => m RefundSuccess
+refundTrace = do
+    t0 <- currentTime
+    let
+        val = (typedValidator (escrowParams (TimeSlot.scSlotZeroTime def)))
+        params = (escrowParams (TimeSlot.scSlotZeroTime def))
+        deadline = t0 + 60_000
+    pay val params (Ada.adaValueOf 20) `as` wallet 1
+    awaitTime deadline
+    refund val params `as` wallet 1
 
 -- | helper function to compute what the given wallet owns in the
 -- given state
@@ -108,29 +128,60 @@ holdingInState (UtxoState m) w
 holdingInState2 :: InitialDistribution -> Wallet -> L.Value
 holdingInState2 d w = mconcat (valuesForWallet d w)
 
-
-
-
+-- Terrible way to do this but just using this to compare values assuming some fee has been applied
+naiveValueComparison :: L.Value -> L.Value -> Bool
+naiveValueComparison v1 v2 = if (Ada.fromValue v1) >= (Ada.fromValue v2)
+                        && (floor $ (* 0.999) $ fromIntegral (Ada.getLovelace (Ada.fromValue v1)))
+                                <= (Ada.getLovelace (Ada.fromValue v2))
+                                        then True else False
 
 tests :: TestTree
 tests = 
     testGroup
         "EscrowSpec"
             [ testCase "Simple example succeeds" usageExample,
-              testCase "Redeem example succeeds" 
+              testCase "Can redeem"
                 $ testSucceeds
-                    (allowBigTransactions redeemTest), 
-              testCase "Redeem complex" 
+                    (allowBigTransactions redeemTrace),
+              testCase "Check wallets and can redeem"
                 $ testSucceedsFrom'
                     ( \_ s ->
                        -- testBool $ (Ada.fromValue ((holdingInState2 testInit (wallet 2)) <> (Ada.adaValueOf 10))
                          --           == Ada.fromValue (holdingInState s (wallet 2)))
-                        testBool $ (Ada.fromValue ((holdingInState2 testInit (wallet 3)))
-                                    == Ada.fromValue (holdingInState s (wallet 3)))                  
+                        -- testBool $ (Ada.fromValue ((holdingInState2 testInit (wallet 3)))
+                         --           == Ada.fromValue (holdingInState s (wallet 3)))
+                        testBool $ naiveValueComparison
+                                        ((holdingInState2 testInit (wallet 2))
+                                                <> (Ada.adaValueOf 10))
+                                        (holdingInState s (wallet 2))
+                        .&&. (testBool $ naiveValueComparison
+                                           ((holdingInState2 testInit (wallet 1))
+                                             <> (Ada.adaValueOf (-10)))
+                                           (holdingInState s (wallet 1)))
+                        -- .&&. (testBool $ naiveValueComparison
+                        --                   (holdingInState2 testInit (wallet 3))
+                        --                   (holdingInState s (wallet 3)))
+
                     )                    
                     testInit  
-                    (allowBigTransactions redeemTest)
-
+                    (allowBigTransactions redeemTrace),
+              testCase "can redeem even if more money than required has been paid in"
+                $ testSucceedsFrom'
+                    ( \_ s ->
+                        testBool $ naiveValueComparison
+                                           ((holdingInState2 testInit (wallet 2))
+                                             <> (Ada.adaValueOf 10))
+                                           (holdingInState s (wallet 2))
+                        .&&. (testBool $ naiveValueComparison
+                                           ((holdingInState2 testInit (wallet 3))
+                                             <> (Ada.adaValueOf (-10)))
+                                           (holdingInState s (wallet 3)))
+                    )
+                    testInit
+                    (allowBigTransactions redeem2Trace),
+              testCase "Can refund"
+                $ testSucceeds
+                    (allowBigTransactions refundTrace)
             ]
 
 
